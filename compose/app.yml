@@ -1,0 +1,56 @@
+name: kuma-app
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: $MARIADB_DATABASE
+      MARIADB_USER: $MARIADB_USER
+      MARIADB_PASSWORD: $MARIADB_PASSWORD
+      MARIADB_ROOT_PASSWORD: $MARIADB_ROOT_PASSWORD
+      MYSQL_EXPORTER_PASSWORD: $MYSQL_EXPORTER_PASSWORD
+      TZ: $TZ
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      - ../mariadb/init/01-create-exporter.sh:/docker-entrypoint-initdb.d/01-create-exporter.sh:ro
+    networks: [backend, observability]
+    healthcheck:
+      test: ["CMD","healthcheck.sh","--connect","--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: uptime-kuma
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      UPTIME_KUMA_DB_TYPE: mariadb
+      UPTIME_KUMA_DB_HOSTNAME: mariadb
+      UPTIME_KUMA_DB_PORT: 3306
+      UPTIME_KUMA_DB_NAME: $MARIADB_DATABASE
+      UPTIME_KUMA_DB_USERNAME: $MARIADB_USER
+      UPTIME_KUMA_DB_PASSWORD: $MARIADB_PASSWORD
+      TZ: $TZ
+    ports: ["127.0.0.1:3001:3001"]
+    volumes: [uptime-kuma-data:/app/data]
+    networks: [backend, observability]
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://127.0.0.1:3001').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+volumes:
+  mariadb-data:
+  uptime-kuma-data:
+networks:
+  backend:
+    internal: true
+  observability:
+    external: true
+    name: kuma-observability
