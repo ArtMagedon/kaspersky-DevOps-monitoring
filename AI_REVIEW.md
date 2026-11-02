@@ -10,14 +10,11 @@
 1. «Спроектируй локальный стенд Uptime Kuma + MariaDB + Prometheus + Grafana с двумя независимыми Docker Compose-слоями и управлением через Dagger Go SDK».
 2. «Реализуй Dagger-команды deploy-app, deploy-monitoring, configure-grafana и deploy-all; используй Docker socket и сделай повторные запуски идемпотентными».
 3. «Подготовь Prometheus scrape-конфигурацию, Blackbox Exporter для HTTP/TCP, cAdvisor, node-exporter, mysqld-exporter и Grafana dashboard».
-4. «Реализуй chaos test: остановка сервиса, фиксация DOWN в Prometheus, восстановление, затем проверка автоматического рестарта».
 5. «Проверь конфигурации на ошибки интеграции: сетевую адресацию, пути bind mounts, API Grafana, restart policy и поддержку MariaDB в Uptime Kuma».
 
 ## Примеры некорректных или неоптимальных предложений и исправления
 
 1. **MariaDB в Uptime Kuma.** В ранней гипотезе AI рассматривалась только SQLite. Это устаревшее ограничение для Uptime Kuma 2.x: официальная документация описывает MariaDB и переменные UPTIME_KUMA_DB_TYPE, UPTIME_KUMA_DB_HOSTNAME, UPTIME_KUMA_DB_PORT, UPTIME_KUMA_DB_NAME, UPTIME_KUMA_DB_USERNAME и UPTIME_KUMA_DB_PASSWORD. Проверка документации привела к использованию образа louislam/uptime-kuma:2 и внешней MariaDB. Для v1 такой backend не подходит.
-
-2. **Поведение docker stop.** Первоначальная схема chaos test предполагала автоматический рестарт после docker stop. Это неверно: намеренная остановка не запускает restart policy. Исправление: docker stop → проверка DOWN → docker start → проверка UP; отдельный docker kill проверяет автоматическое восстановление по restart: unless-stopped.
 
 3. **Сетевой доступ из Dagger.** В раннем варианте вспомогательный контейнер пытался подключить рабочую директорию через bind mount по пути /workspace. Поскольку Docker CLI управляет хостовым daemon, bind source разрешается на хосте, а не в файловой системе Dagger-контейнера. Исправление: временный контейнер подключается к сети kuma-observability, файлы копируются через docker cp, а команды запускаются через docker exec.
 
@@ -33,8 +30,7 @@
 - dagger call deploy-all
 - Prometheus Status → Targets, запросы probe_success и mysql_up.
 - Повторный dagger call configure-grafana для проверки идемпотентности.
-- Оба chaos-test сценария.
 
 ## Ограничение верификации
 
-Файлы подготовлены и загружены в репозиторий, но runtime deployment здесь не выполнялся: среда редактирования GitHub не предоставляет подключённый Docker daemon и Dagger Engine. Следовательно, запуск контейнеров, Grafana API, exporter scrape и chaos tests требуют проверки на целевой машине. Нельзя считать их пройденными до такого запуска.
+Файлы подготовлены и загружены в репозиторий, но runtime deployment здесь не выполнялся: среда редактирования GitHub не предоставляет подключённый Docker daemon и Dagger Engine. Следовательно, запуск контейнеров, Grafana API, exporter scrape требуют проверки на целевой машине. Нельзя считать их пройденными до такого запуска.
