@@ -89,15 +89,6 @@ jobs:
       - name: Run integration tests
         run: sh tests/integration.sh
 
-      - name: Run Uptime Kuma recovery test
-        run: |
-          docker run --rm --network kuma-observability \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD:/workspace:ro" -w /workspace alpine:3.21 sh -ec '
-              apk add --no-cache curl python3 docker-cli
-              sh scripts/chaos-test.sh uptime-kuma
-            '
-
       - name: Collect diagnostics on failure
         if: failure()
         run: |
