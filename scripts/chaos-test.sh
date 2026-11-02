@@ -53,7 +53,9 @@ wait_probe 1
 # Simulate an unexpected process crash rather than an explicit Docker stop/kill.
 # Killing PID 1 makes the container exit naturally, allowing restart policy handling.
 previous_count="$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")"
-docker exec "$CONTAINER" sh -c 'kill -9 1' >/dev/null 2>&1 || true
+# Uptime Kuma runs under a non-root user; use root explicitly so the signal
+# can terminate PID 1 (dumb-init) and let Docker apply restart: unless-stopped.
+docker exec --user 0 "$CONTAINER" sh -c 'kill -KILL 1' >/dev/null 2>&1 || true
 wait_restarted "$previous_count"
 wait_probe 1
 echo "Chaos test passed: $TARGET"
