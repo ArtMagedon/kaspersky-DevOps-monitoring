@@ -60,7 +60,7 @@ Dagger подключается к Docker daemon через /var/run/docker.sock
 
 Учётные данные Grafana задаются в .env. При первом входе в Uptime Kuma создайте администратора.
 
-В Prometheus откройте Status → Targets: ожидаются UP для prometheus, cadvisor, node-exporter, mysqld-exporter и двух blackbox jobs. В Grafana откройте папку Infrastructure и dashboard Uptime Kuma — Infrastructure health.
+В Prometheus откройте Status → Targets: ожидаются UP для prometheus, cadvisor, node-exporter, mysqld-exporter и двух blackbox jobs. В Grafana откройте dashboard Uptime Kuma — Infrastructure health в папке General.
 
 ## Chaos testing
 
