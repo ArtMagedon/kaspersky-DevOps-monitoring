@@ -26,7 +26,7 @@ check_http() {
 
 query_prometheus() {
   query="$1"
-  encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="{}=,\""))' "$query")"
+  encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$query")"
   curl --silent --show-error --fail --max-time 10 "http://127.0.0.1:9090/api/v1/query?query=$encoded"
 }
 
