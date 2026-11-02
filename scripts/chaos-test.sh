@@ -26,18 +26,34 @@ wait_probe() {
  done
  echo "Timed out waiting for $JOB=$expected; last=$value" >&2;return 1
 }
+wait_restarted() {
+ previous_count="$1";attempt=0
+ while [ "$attempt" -lt 45 ]; do
+  state="$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)"
+  restart_count="$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo 0)"
+  if [ "$state" = "true" ] && [ "$restart_count" -gt "$previous_count" ]; then
+   echo "Container restarted automatically (restart count: $previous_count -> $restart_count)."
+   return 0
+  fi
+  attempt=$((attempt+1));sleep 2
+ done
+ echo "Automatic restart failed: running=$state, restart_count=$restart_count, expected > $previous_count" >&2
+ docker inspect -f 'state={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}} restart_policy={{.HostConfig.RestartPolicy.Name}}' "$CONTAINER" >&2 || true
+ return 1
+}
+restart_policy="$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER")"
+[ "$restart_policy" = "unless-stopped" ] || {
+ echo "Unexpected restart policy for $CONTAINER: $restart_policy" >&2
+ exit 1
+}
 docker stop --time 5 "$CONTAINER" >/dev/null
 wait_probe 0
 docker start "$CONTAINER" >/dev/null
 wait_probe 1
-sleep 12
-docker kill "$CONTAINER" >/dev/null
-attempt=0;running=false
-while [ "$attempt" -lt 30 ]; do
- running="$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)"
- [ "$running" = "true" ] && break
- attempt=$((attempt+1));sleep 2
-done
-[ "$running" = "true" ] || { echo "Restart policy did not recover container" >&2;exit 1; }
+# Simulate an unexpected process crash rather than an explicit Docker stop/kill.
+# Killing PID 1 makes the container exit naturally, allowing restart policy handling.
+previous_count="$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")"
+docker exec "$CONTAINER" sh -c 'kill -9 1' >/dev/null 2>&1 || true
+wait_restarted "$previous_count"
 wait_probe 1
 echo "Chaos test passed: $TARGET"
