@@ -3,8 +3,8 @@ set -eu
 
 TARGET="$1"
 case "$TARGET" in
- uptime-kuma) CONTAINER=uptime-kuma; JOB=blackbox-uptime-kuma ;;
- mariadb) CONTAINER=mariadb; JOB=blackbox-mariadb ;;
+ uptime-kuma) CONTAINER=uptime-kuma; JOB=blackbox-uptime-kuma; APP_PROCESS=uptime-kuma ;;
+ mariadb) CONTAINER=mariadb; JOB=blackbox-mariadb; APP_PROCESS=mariadbd ;;
  *) echo "Usage: chaos-test.sh uptime-kuma|mariadb" >&2; exit 2 ;;
 esac
 
@@ -80,7 +80,7 @@ if ! docker exec --user 0 "$CONTAINER" sh -c '
  for proc in /proc/[0-9]*; do
   [ -r "$proc/comm" ] || continue
   IFS= read -r name < "$proc/comm" || continue
-  if [ "$name" = "uptime-kuma" ]; then
+  if [ "$name" = "$APP_PROCESS" ]; then
    pid="${proc##*/}"
    echo "Sending SIGKILL to application PID $pid (comm=$name)" >&2
    kill -KILL "$pid"
@@ -88,7 +88,7 @@ if ! docker exec --user 0 "$CONTAINER" sh -c '
    break
   fi
  done
- [ "$found" -eq 1 ] || { echo "Could not find uptime-kuma application process" >&2; exit 1; }
+ [ "$found" -eq 1 ] || { echo "Could not find application process: $APP_PROCESS" >&2; exit 1; }
 '; then
  echo "Failed to terminate the application process" >&2
  container_snapshot
