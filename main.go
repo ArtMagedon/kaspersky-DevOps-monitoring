@@ -82,9 +82,3 @@ func (m *UptimeKumaMonitoring) Validate(ctx context.Context) (string, error) {
 	return "Validation passed.", nil
 }
 
-// ChaosTest checks DOWN/UP transitions and restart-policy recovery.
-func (m *UptimeKumaMonitoring) ChaosTest(ctx context.Context, target string) (string, error) {
-	if target != "uptime-kuma" && target != "mariadb" { return "", fmt.Errorf("target must be uptime-kuma or mariadb") }
-	if err := m.networkCommand(ctx, "scripts/chaos-test.sh "+target); err != nil { return "", err }
-	return "Chaos test passed for "+target+".", nil
-}
