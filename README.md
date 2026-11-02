@@ -74,16 +74,8 @@ Workflow **Uptime Kuma monitoring tests** запускается при push в 
 
     sh tests/integration.sh
 
-Перед запуском локально должны быть созданы .env, внешняя сеть kuma-observability и запущены оба Compose-слоя. Для полного сценария, включая аварийное восстановление, используйте GitHub Actions workflow либо команды chaos-test ниже.
+Перед запуском локально должны быть созданы .env, внешняя сеть kuma-observability и запущены оба Compose-слоя. 
 
-## Chaos testing
-
-    dagger call chaos-test --target uptime-kuma
-    dagger call chaos-test --target mariadb
-
-Сценарий выполняет docker stop, ждёт probe_success=0 в Prometheus, затем docker start и ждёт probe_success=1. После этого docker kill проверяет автоматический рестарт по restart: unless-stopped.
-
-Важно: намеренный docker stop не вызывает автоматический restart policy. Поэтому после наблюдения DOWN сценарий явно выполняет docker start. Автоматическое восстановление проверяется отдельным аварийным завершением процесса через docker kill. Grafana обновит значения с учётом scrape_interval 15 секунд.
 
 ## Остановка и очистка
 
@@ -103,7 +95,7 @@ Named volumes сохраняются. Для полного удаления д�
 - prometheus/ — scrape и Blackbox exporter конфигурации.
 - grafana/ — provisioning и dashboard.
 - mariadb/init/ — создание отдельного пользователя exporter.
-- scripts/ — Grafana API, validation и chaos testing.
+- scripts/ — Grafana API и validation.
 - AI_REVIEW.md — использование AI и разбор проверенных предложений.
 
 ## Эксплуатационные замечания
