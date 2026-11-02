@@ -60,6 +60,8 @@ restart_policy="$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTA
  exit 1
 }
 
+# A manual stop/start first verifies that monitoring observes downtime and recovery.
+# Starting the container again re-enables its restart policy.
 docker stop --time 5 "$CONTAINER" >/dev/null
 wait_probe 0
 docker start "$CONTAINER" >/dev/null
@@ -69,21 +71,29 @@ previous_count="$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")"
 echo "Restart test baseline: restart_count=$previous_count"
 container_snapshot
 
-# Signal the container through the Docker Engine API. Sending SIGKILL to PID 1
-# from inside its own PID namespace does not reliably terminate namespace init.
-echo "--- Sending SIGKILL through Docker Engine ---" >&2
-if kill_output="$(docker kill --signal=KILL "$CONTAINER" 2>&1)"; then
- echo "$kill_output" >&2
-else
- kill_status=$?
- echo "$kill_output" >&2
- echo "docker kill failed with exit_code=$kill_status" >&2
+# Crash the application process, not the container via Docker Engine.
+# A manual docker kill/stop is treated as an intentional stop and suppresses
+# restart-policy handling. Killing the main child lets dumb-init exit naturally.
+echo "--- Killing the main application process inside $CONTAINER ---" >&2
+if ! docker exec --user 0 "$CONTAINER" sh -c '
+ found=0
+ for proc in /proc/[0-9]*; do
+  [ -r "$proc/comm" ] || continue
+  IFS= read -r name < "$proc/comm" || continue
+  if [ "$name" = "uptime-kuma" ]; then
+   pid="${proc##*/}"
+   echo "Sending SIGKILL to application PID $pid (comm=$name)" >&2
+   kill -KILL "$pid"
+   found=1
+   break
+  fi
+ done
+ [ "$found" -eq 1 ] || { echo "Could not find uptime-kuma application process" >&2; exit 1; }
+'; then
+ echo "Failed to terminate the application process" >&2
  container_snapshot
- exit "$kill_status"
+ exit 1
 fi
-
-echo "--- State immediately after Docker kill ---" >&2
-docker inspect -f 'state={{.State.Status}} running={{.State.Running}} restarting={{.State.Restarting}} exit={{.State.ExitCode}} error={{.State.Error}} restart_count={{.RestartCount}} restart_policy={{.HostConfig.RestartPolicy.Name}} finished={{.State.FinishedAt}}' "$CONTAINER" >&2 || true
 
 wait_restarted "$previous_count"
 wait_probe 1
