@@ -62,6 +62,20 @@ Dagger подключается к Docker daemon через /var/run/docker.sock
 
 В Prometheus откройте Status → Targets: ожидаются UP для prometheus, cadvisor, node-exporter, mysqld-exporter и двух blackbox jobs. В Grafana откройте dashboard Uptime Kuma — Infrastructure health в папке General.
 
+## Автоматические тесты GitHub Actions
+
+Workflow **Uptime Kuma monitoring tests** запускается при push в main, создании/обновлении pull request, а также вручную через GitHub → Actions → Uptime Kuma monitoring tests → Run workflow.
+
+Проверки выполняются на чистом GitHub Actions runner и поднимают настоящий Docker Compose-стенд с тестовыми случайными паролями. Workflow проверяет shell-скрипты, Compose и Prometheus-конфигурации, запускает MariaDB, Uptime Kuma, Prometheus, Grafana и exporters, проверяет SQL-запрос, HTTP endpoints, все scrape targets, ключевые Prometheus metrics, Grafana datasource/dashboard и восстановление Uptime Kuma после аварийного завершения контейнера.
+
+Результат каждого этапа отображается в логе GitHub Actions. При ошибке workflow сохраняет в логах диагностику контейнеров; после завершения тестовый стенд и его volumes удаляются. Это отдельная тестовая среда — она не подключается к вашему локальному Docker Engine.
+
+Локальный запуск функциональных проверок после развёртывания стенда:
+
+    sh tests/integration.sh
+
+Перед запуском локально должны быть созданы .env, внешняя сеть kuma-observability и запущены оба Compose-слоя. Для полного сценария, включая аварийное восстановление, используйте GitHub Actions workflow либо команды chaos-test ниже.
+
 ## Chaos testing
 
     dagger call chaos-test --target uptime-kuma
