@@ -1,1 +1,1 @@
-{"name":"uptime-kuma-monitoring","sdk":{"source":"go"},"engineVersion":"v0.21.11","source":"."}
+{"name":"uptime-kuma-monitoring","sdk":"go","engineVersion":"v0.21.11","source":"."}
