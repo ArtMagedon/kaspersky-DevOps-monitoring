@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+mariadb --protocol=socket -uroot -p"$MARIADB_ROOT_PASSWORD" <<SQL
+CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED BY '$MYSQL_EXPORTER_PASSWORD';
+GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+FLUSH PRIVILEGES;
+SQL
