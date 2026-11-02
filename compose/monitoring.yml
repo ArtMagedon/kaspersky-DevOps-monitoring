@@ -1,0 +1,92 @@
+name: kuma-monitoring
+services:
+  prometheus:
+    image: prom/prometheus:v3.8.1
+    container_name: prometheus
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml","--storage.tsdb.path=/prometheus","--storage.tsdb.retention.time=15d","--web.enable-lifecycle"]
+    ports: ["127.0.0.1:9090:9090"]
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/blackbox.yml:/etc/prometheus/blackbox.yml:ro
+      - prometheus-data:/prometheus
+    depends_on: [blackbox-exporter,cadvisor,node-exporter,mysqld-exporter]
+    networks: [observability]
+    healthcheck:
+      test: ["CMD","wget","-q","--spider","http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  grafana:
+    image: grafana/grafana:12.2.1
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: $GRAFANA_ADMIN_USER
+      GF_SECURITY_ADMIN_PASSWORD: $GRAFANA_ADMIN_PASSWORD
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["127.0.0.1:3000:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks: [observability]
+    healthcheck:
+      test: ["CMD","wget","-q","--spider","http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    container_name: blackbox-exporter
+    restart: unless-stopped
+    command: ["--config.file=/etc/blackbox_exporter/config.yml"]
+    volumes: [../prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro]
+    networks: [observability]
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.17.2
+    container_name: mysqld-exporter
+    restart: unless-stopped
+    command: ["--mysqld.address=mariadb:3306","--mysqld.username=exporter"]
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: $MYSQL_EXPORTER_PASSWORD
+    networks: [observability]
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices: ["/dev/kmsg"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    command: ["--docker_only=true","--housekeeping_interval=15s"]
+    networks: [observability]
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: node-exporter
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.rootfs=/rootfs
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks: [observability]
+volumes:
+  prometheus-data:
+  grafana-data:
+networks:
+  observability:
+    external: true
+    name: kuma-observability
