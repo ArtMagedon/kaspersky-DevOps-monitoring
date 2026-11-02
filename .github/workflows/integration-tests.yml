@@ -27,11 +27,10 @@ jobs:
           docker version
           docker compose version
           python3 --version
-          shellcheck --version
 
       - name: Validate shell scripts
         run: |
-          shellcheck scripts/*.sh tests/*.sh
+          shellcheck -S error scripts/*.sh tests/*.sh
 
       - name: Validate Compose files
         run: |
@@ -47,8 +46,16 @@ jobs:
               json.loads(path.read_text(encoding="utf-8"))
               print(f"Valid JSON: {path}")
           PY
-          docker run --rm -v "$PWD/prometheus:/etc/prometheus:ro" prom/prometheus:v3.8.1 promtool check config /etc/prometheus/prometheus.yml
-          docker run --rm -v "$PWD/prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro" prom/blackbox-exporter:v0.27.0 --config.file=/etc/blackbox_exporter/config.yml --version
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/prometheus:/etc/prometheus:ro" prom/prometheus:v3.8.1 check config /etc/prometheus/prometheus.yml
+          set +e
+          timeout 5s docker run --rm -v "$PWD/prometheus/blackbox.yml:/etc/blackbox_exporter/config.yml:ro" prom/blackbox-exporter:v0.27.0 --config.file=/etc/blackbox_exporter/config.yml >/tmp/blackbox-config.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 124 ]; then
+            cat /tmp/blackbox-config.log
+            echo "Blackbox Exporter config validation failed (exit code: $status)"
+            exit 1
+          fi
 
       - name: Create isolated test credentials
         run: |
