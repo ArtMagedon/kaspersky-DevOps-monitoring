@@ -1,23 +1,90 @@
 package main
-import("context";"fmt";"dagger/uptime-kuma-monitoring/internal/dagger")
+
+import (
+	"context"
+	"fmt"
+
+	"dagger/uptime-kuma-monitoring/internal/dagger"
+)
+
 type UptimeKumaMonitoring struct{}
-func(m *UptimeKumaMonitoring) docker(ctx context.Context,script string)error{
- _,err:=dag.Container().From("docker:cli").WithExec([]string{"sh","-lc","apk add --no-cache docker-cli-compose"}).
- WithUnixSocket("/var/run/docker.sock",dag.Host().UnixSocket("/var/run/docker.sock")).
- WithMountedDirectory("/workspace",dag.Host().Directory(".")).WithWorkdir("/workspace").
- WithExec([]string{"sh","-lc",script}).Stdout(ctx);return err
+
+func (m *UptimeKumaMonitoring) docker(ctx context.Context, script string) error {
+	_, err := dag.Container().From("docker:cli").
+		WithExec([]string{"sh", "-lc", "apk add --no-cache docker-cli-compose"}).
+		WithUnixSocket("/var/run/docker.sock", dag.Host().UnixSocket("/var/run/docker.sock")).
+		WithMountedDirectory("/workspace", dag.Host().Directory(".")).
+		WithWorkdir("/workspace").
+		WithExec([]string{"sh", "-lc", script}).Stdout(ctx)
+	return err
 }
-func(m *UptimeKumaMonitoring) prepare(ctx context.Context)error{return m.docker(ctx,"test -f .env || { echo 'Create .env from .env.example'; exit 1; }; docker network inspect kuma-observability >/dev/null 2>&1 || docker network create kuma-observability")}
-func(m *UptimeKumaMonitoring) networkCommand(ctx context.Context,cmd string)error{return m.docker(ctx,"docker run --rm --network kuma-observability -v /var/run/docker.sock:/var/run/docker.sock -v \"$PWD:/workspace\" -w /workspace docker:cli sh -lc 'apk add --no-cache curl python3 >/dev/null && "+cmd+"'")}
+
+func (m *UptimeKumaMonitoring) prepare(ctx context.Context) error {
+	return m.docker(ctx, "test -f .env || { echo 'Create .env from .env.example'; exit 1; }; docker network inspect kuma-observability >/dev/null 2>&1 || docker network create kuma-observability")
+}
+
+// The helper is attached to the Docker network. docker cp transfers workspace
+// files through the Docker API; a bind mount would incorrectly resolve paths
+// on the host daemon rather than inside the Dagger container.
+func (m *UptimeKumaMonitoring) networkCommand(ctx context.Context, cmd string) error {
+	script := "set -eu; name=kuma-dagger-helper; " +
+		"docker rm -f $name >/dev/null 2>&1 || true; " +
+		"docker run -d --name $name --network kuma-observability -v /var/run/docker.sock:/var/run/docker.sock alpine:3.21 sleep 3600 >/dev/null; " +
+		"trap 'docker rm -f $name >/dev/null 2>&1 || true' EXIT; " +
+		"docker exec $name mkdir -p /workspace; " +
+		"docker cp scripts $name:/workspace/; docker cp grafana $name:/workspace/; docker cp .env $name:/workspace/.env; " +
+		"docker exec $name apk add --no-cache curl python3 docker-cli >/dev/null; " +
+		"docker exec -w /workspace $name sh -lc 'sh " + cmd + "'"
+	return m.docker(ctx, script)
+}
+
 // DeployApp starts MariaDB and Uptime Kuma.
-func(m *UptimeKumaMonitoring) DeployApp(ctx context.Context)(string,error){if e:=m.prepare(ctx);e!=nil{return "",e};if e:=m.docker(ctx,"docker compose --env-file .env -f compose/app.yml up -d --wait --wait-timeout 180");e!=nil{return "",fmt.Errorf("deploy-app: %w",e)};return "MariaDB and Uptime Kuma deployed.",nil}
+func (m *UptimeKumaMonitoring) DeployApp(ctx context.Context) (string, error) {
+	if err := m.prepare(ctx); err != nil { return "", err }
+	if err := m.docker(ctx, "docker compose --env-file .env -f compose/app.yml up -d --wait --wait-timeout 180"); err != nil {
+		return "", fmt.Errorf("deploy-app: %w", err)
+	}
+	return "MariaDB and Uptime Kuma deployed.", nil
+}
+
 // DeployMonitoring starts Prometheus, Grafana and exporters.
-func(m *UptimeKumaMonitoring) DeployMonitoring(ctx context.Context)(string,error){if e:=m.prepare(ctx);e!=nil{return "",e};if e:=m.docker(ctx,"docker compose --env-file .env -f compose/monitoring.yml up -d --wait --wait-timeout 180");e!=nil{return "",fmt.Errorf("deploy-monitoring: %w",e)};return "Prometheus, Grafana and exporters deployed.",nil}
+func (m *UptimeKumaMonitoring) DeployMonitoring(ctx context.Context) (string, error) {
+	if err := m.prepare(ctx); err != nil { return "", err }
+	if err := m.docker(ctx, "docker compose --env-file .env -f compose/monitoring.yml up -d --wait --wait-timeout 180"); err != nil {
+		return "", fmt.Errorf("deploy-monitoring: %w", err)
+	}
+	return "Prometheus, Grafana and exporters deployed.", nil
+}
+
 // ConfigureGrafana applies datasource and dashboard through Grafana HTTP API.
-func(m *UptimeKumaMonitoring) ConfigureGrafana(ctx context.Context)(string,error){if e:=m.prepare(ctx);e!=nil{return "",e};if e:=m.networkCommand(ctx,"sh scripts/configure-grafana.sh");e!=nil{return "",fmt.Errorf("configure-grafana: %w",e)};return "Grafana datasource and dashboard configured.",nil}
+func (m *UptimeKumaMonitoring) ConfigureGrafana(ctx context.Context) (string, error) {
+	if err := m.prepare(ctx); err != nil { return "", err }
+	if err := m.networkCommand(ctx, "scripts/configure-grafana.sh"); err != nil {
+		return "", fmt.Errorf("configure-grafana: %w", err)
+	}
+	return "Grafana datasource and dashboard configured.", nil
+}
+
 // DeployAll deploys both layers, configures Grafana and validates the stack.
-func(m *UptimeKumaMonitoring) DeployAll(ctx context.Context)(string,error){if _,e:=m.DeployApp(ctx);e!=nil{return "",e};if _,e:=m.DeployMonitoring(ctx);e!=nil{return "",e};if _,e:=m.ConfigureGrafana(ctx);e!=nil{return "",e};if e:=m.networkCommand(ctx,"sh scripts/validate.sh");e!=nil{return "",fmt.Errorf("validation: %w",e)};return "Full stack deployed; validation passed.",nil}
+func (m *UptimeKumaMonitoring) DeployAll(ctx context.Context) (string, error) {
+	if _, err := m.DeployApp(ctx); err != nil { return "", err }
+	if _, err := m.DeployMonitoring(ctx); err != nil { return "", err }
+	if _, err := m.ConfigureGrafana(ctx); err != nil { return "", err }
+	if err := m.networkCommand(ctx, "scripts/validate.sh"); err != nil {
+		return "", fmt.Errorf("validation: %w", err)
+	}
+	return "Full stack deployed; validation passed.", nil
+}
+
 // Validate checks endpoints and Prometheus probes.
-func(m *UptimeKumaMonitoring) Validate(ctx context.Context)(string,error){if e:=m.networkCommand(ctx,"sh scripts/validate.sh");e!=nil{return "",e};return "Validation passed.",nil}
-// ChaosTest checks DOWN/UP and restart-policy recovery.
-func(m *UptimeKumaMonitoring) ChaosTest(ctx context.Context,target string)(string,error){if target!="uptime-kuma"&&target!="mariadb"{return "",fmt.Errorf("target must be uptime-kuma or mariadb")};if e:=m.networkCommand(ctx,"sh scripts/chaos-test.sh "+target);e!=nil{return "",e};return "Chaos test passed for "+target+".",nil}
+func (m *UptimeKumaMonitoring) Validate(ctx context.Context) (string, error) {
+	if err := m.networkCommand(ctx, "scripts/validate.sh"); err != nil { return "", err }
+	return "Validation passed.", nil
+}
+
+// ChaosTest checks DOWN/UP transitions and restart-policy recovery.
+func (m *UptimeKumaMonitoring) ChaosTest(ctx context.Context, target string) (string, error) {
+	if target != "uptime-kuma" && target != "mariadb" { return "", fmt.Errorf("target must be uptime-kuma or mariadb") }
+	if err := m.networkCommand(ctx, "scripts/chaos-test.sh "+target); err != nil { return "", err }
+	return "Chaos test passed for "+target+".", nil
+}
