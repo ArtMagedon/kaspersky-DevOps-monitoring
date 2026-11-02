@@ -59,7 +59,6 @@ services:
     container_name: cadvisor
     restart: unless-stopped
     privileged: true
-    devices: ["/dev/kmsg"]
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
